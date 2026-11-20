@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -7,6 +7,7 @@ import {
   StyleSheet,
   StatusBar,
   ActivityIndicator,
+  Platform,
 } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { AdminUser, DEFAULT_API_URL, mobileApi } from './src/services/api';
@@ -28,6 +29,7 @@ function MainApp() {
   const [tab, setTab] = useState<Tab>('orders');
   const [banner, setBanner] = useState<InAppNotification | null>(null);
   const [ordersReloadKey, setOrdersReloadKey] = useState(0);
+  const knownOrderIdsRef = useRef<Set<string> | null>(null);
 
   useEffect(() => {
     mobileApi
@@ -40,7 +42,12 @@ function MainApp() {
   }, []);
 
   useEffect(() => {
-    if (!user) return;
+    if (!user) {
+      knownOrderIdsRef.current = null;
+      return;
+    }
+
+    // Android: nhận push FCM realtime
     let cleanup: (() => void) | undefined;
     setupPushNotifications((payload) => {
       setBanner({
@@ -53,8 +60,41 @@ function MainApp() {
     }).then((fn) => {
       cleanup = fn;
     });
+
+    // iOS (.ipa miễn phí không có APNs): tự kiểm tra đơn mới mỗi 15 giây khi mở app
+    let pollTimer: ReturnType<typeof setInterval> | undefined;
+    if (Platform.OS === 'ios') {
+      const checkNewOrders = async () => {
+        try {
+          const orders = await mobileApi.getOrders('all');
+          if (!knownOrderIdsRef.current) {
+            knownOrderIdsRef.current = new Set(orders.map((o) => o.id));
+            return;
+          }
+          const newOrder = orders.find((o) => !knownOrderIdsRef.current!.has(o.id));
+          if (newOrder) {
+            orders.forEach((o) => knownOrderIdsRef.current!.add(o.id));
+            setBanner({
+              id: Date.now(),
+              title: `🛒 Đơn hàng mới #${newOrder.orderCode}`,
+              body: `${newOrder.customerName} (${newOrder.customerPhone}) • ${Math.round(
+                newOrder.totalAmount
+              ).toLocaleString('vi-VN')}đ`,
+              orderCode: newOrder.orderCode,
+            });
+            setOrdersReloadKey((k) => k + 1);
+          }
+        } catch {
+          // Bỏ qua lỗi mạng tạm thời
+        }
+      };
+      checkNewOrders();
+      pollTimer = setInterval(checkNewOrders, 15_000);
+    }
+
     return () => {
       cleanup?.();
+      if (pollTimer) clearInterval(pollTimer);
     };
   }, [user]);
 

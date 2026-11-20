@@ -53,9 +53,20 @@ export async function setupPushNotifications(
       onNewNotification?.({ title, body, orderCode });
     });
 
+    const unsubOpened = fcm.onNotificationOpenedApp(messaging, (remoteMessage: any) => {
+      const title = remoteMessage?.notification?.title || 'Đơn hàng mới';
+      const body = remoteMessage?.notification?.body || 'Mở đơn hàng mới nhất';
+      const orderCode =
+        typeof remoteMessage?.data?.orderCode === 'string'
+          ? remoteMessage.data.orderCode
+          : undefined;
+      onNewNotification?.({ title, body, orderCode });
+    });
+
     return () => {
       unsubRefresh();
       unsubMessage();
+      unsubOpened();
     };
   } catch (err) {
     console.warn('[Push] Setup skipped:', err);

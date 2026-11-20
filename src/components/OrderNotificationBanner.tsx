@@ -29,7 +29,11 @@ export function OrderNotificationBanner({ notification, onPress, onDismiss }: Pr
   useEffect(() => {
     if (!notification) return;
 
-    Vibration.vibrate([0, 120, 80, 120]);
+    try {
+      Vibration.vibrate([0, 120, 80, 120]);
+    } catch {
+      // Ignore if VIBRATE permission is missing on older build
+    }
 
     Animated.parallel([
       Animated.spring(translateY, {
