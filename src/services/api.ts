@@ -1,8 +1,10 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Platform } from 'react-native';
 
 const TOKEN_KEY = 'dieunha_admin_token';
 const USER_KEY = 'dieunha_admin_user';
 const API_URL_KEY = 'dieunha_api_url';
+const SESSION_KEY = 'dieunha_mobile_session_id';
 
 export const DEFAULT_API_URL = 'https://dieu-nha-api.onrender.com/api/v1';
 
@@ -55,6 +57,7 @@ export interface VisitorStats {
 export interface ActivityLog {
   id: string;
   ip: string;
+  location?: string | null;
   userName?: string | null;
   userEmail?: string | null;
   action: string;
@@ -68,6 +71,7 @@ export interface VisitorSession {
   id: string;
   sessionId: string;
   ip: string;
+  location?: string | null;
   device?: string | null;
   browser?: string | null;
   os?: string | null;
@@ -82,17 +86,25 @@ export interface VisitorSession {
 class MobileApiService {
   private baseUrl: string = DEFAULT_API_URL;
   private token: string | null = null;
+  private sessionId: string = `mobile-${Platform.OS}-${Date.now()}`;
 
   async init(): Promise<{ token: string | null; user: AdminUser | null; apiUrl: string }> {
-    const [savedUrl, savedToken, savedUser] = await Promise.all([
+    const [savedUrl, savedToken, savedUser, savedSession] = await Promise.all([
       AsyncStorage.getItem(API_URL_KEY),
       AsyncStorage.getItem(TOKEN_KEY),
       AsyncStorage.getItem(USER_KEY),
+      AsyncStorage.getItem(SESSION_KEY),
     ]);
     if (savedUrl && !savedUrl.includes('10.0.2.2') && !savedUrl.includes('localhost')) {
       this.baseUrl = savedUrl;
     }
     if (savedToken) this.token = savedToken;
+    if (savedSession) {
+      this.sessionId = savedSession;
+    } else {
+      this.sessionId = `mobile-${Platform.OS}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      await AsyncStorage.setItem(SESSION_KEY, this.sessionId);
+    }
     const user = savedUser ? (JSON.parse(savedUser) as AdminUser) : null;
     return { token: this.token, user, apiUrl: this.baseUrl };
   }
@@ -108,7 +120,11 @@ class MobileApiService {
   }
 
   private headers(): Record<string, string> {
-    const h: Record<string, string> = { 'Content-Type': 'application/json' };
+    const h: Record<string, string> = {
+      'Content-Type': 'application/json',
+      'x-session-id': this.sessionId,
+      'x-client-agent': `DieuNhaAdmin-${Platform.OS === 'ios' ? 'iOS' : 'Android'}`,
+    };
     if (this.token) h.Authorization = `Bearer ${this.token}`;
     return h;
   }
@@ -208,6 +224,46 @@ class MobileApiService {
       headers: this.headers(),
       body: JSON.stringify({ token }),
     });
+  }
+
+  async sendMobileTrack(
+    action: string,
+    path: string,
+    target?: string,
+    user?: AdminUser | null
+  ): Promise<void> {
+    await fetch(`${this.baseUrl}/analytics/track`, {
+      method: 'POST',
+      headers: this.headers(),
+      body: JSON.stringify({
+        sessionId: this.sessionId,
+        userId: user?.id,
+        userName: user?.name,
+        userEmail: user?.email,
+        events: [
+          {
+            action,
+            category: action === 'page_view' ? 'navigation' : 'interaction',
+            target: target || path,
+            path,
+          },
+        ],
+      }),
+    }).catch(() => {});
+  }
+
+  async sendMobileHeartbeat(path: string, user?: AdminUser | null): Promise<void> {
+    await fetch(`${this.baseUrl}/analytics/heartbeat`, {
+      method: 'POST',
+      headers: this.headers(),
+      body: JSON.stringify({
+        sessionId: this.sessionId,
+        path,
+        userId: user?.id,
+        userName: user?.name,
+        userEmail: user?.email,
+      }),
+    }).catch(() => {});
   }
 }
 

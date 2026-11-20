@@ -8,6 +8,7 @@ import {
   StatusBar,
   ActivityIndicator,
   Platform,
+  AppState,
 } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { AdminUser, DEFAULT_API_URL, mobileApi } from './src/services/api';
@@ -61,10 +62,12 @@ function MainApp() {
       cleanup = fn;
     });
 
-    // iOS (.ipa miễn phí không có APNs): tự kiểm tra đơn mới mỗi 15 giây khi mở app
+    // iOS (.ipa miễn phí không có APNs): kiểm tra đơn mới ngay khi mở app & mỗi 5 giây khi đang mở
     let pollTimer: ReturnType<typeof setInterval> | undefined;
+    let iosAppStateSub: { remove: () => void } | undefined;
     if (Platform.OS === 'ios') {
       const checkNewOrders = async () => {
+        if (AppState.currentState !== 'active') return;
         try {
           const orders = await mobileApi.getOrders('all');
           if (!knownOrderIdsRef.current) {
@@ -89,14 +92,41 @@ function MainApp() {
         }
       };
       checkNewOrders();
-      pollTimer = setInterval(checkNewOrders, 15_000);
+      pollTimer = setInterval(checkNewOrders, 5_000);
+      iosAppStateSub = AppState.addEventListener('change', (state) => {
+        if (state === 'active') checkNewOrders();
+      });
     }
 
     return () => {
       cleanup?.();
       if (pollTimer) clearInterval(pollTimer);
+      iosAppStateSub?.remove();
     };
   }, [user]);
+
+  useEffect(() => {
+    if (booting) return;
+    const screenPath = user ? `/app/${tab}` : '/app/login';
+    mobileApi.sendMobileTrack('page_view', screenPath, `Mobile: ${screenPath}`, user);
+
+    const hbTimer = setInterval(() => {
+      if (AppState.currentState === 'active') {
+        mobileApi.sendMobileHeartbeat(screenPath, user);
+      }
+    }, 60_000);
+
+    const appStateSub = AppState.addEventListener('change', (state) => {
+      if (state === 'active') {
+        mobileApi.sendMobileHeartbeat(screenPath, user);
+      }
+    });
+
+    return () => {
+      clearInterval(hbTimer);
+      appStateSub.remove();
+    };
+  }, [booting, user, tab]);
 
   const handleLogout = async () => {
     await clearPushRegistration();

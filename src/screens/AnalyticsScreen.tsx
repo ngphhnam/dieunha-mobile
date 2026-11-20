@@ -131,6 +131,9 @@ export function AnalyticsScreen() {
                   </Text>
                 </View>
               </View>
+              {item.location ? (
+                <Text style={styles.locationText}>📍 {item.location}</Text>
+              ) : null}
               <Text style={styles.metaText}>
                 {item.device || 'Desktop'} • {item.browser || '?'} • {item.os || '?'}
               </Text>
@@ -158,7 +161,9 @@ export function AnalyticsScreen() {
                 {item.target || item.path}
               </Text>
               <Text style={styles.metaText}>
-                IP: {item.ip} • {item.userName || 'Khách'} • {item.path}
+                IP: {item.ip}
+                {item.location ? ` (📍 ${item.location})` : ''} • {item.userName || 'Khách'} •{' '}
+                {item.path}
               </Text>
             </View>
           )}
@@ -214,6 +219,7 @@ const styles = StyleSheet.create({
   },
   rowTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   ipText: { fontWeight: '800', fontSize: 13, color: '#1c1917' },
+  locationText: { fontSize: 11, fontWeight: '600', color: '#b45309', marginTop: 3 },
   statusPill: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: 10 },
   statusPillText: { fontSize: 10, fontWeight: '700' },
   actionBadge: {
